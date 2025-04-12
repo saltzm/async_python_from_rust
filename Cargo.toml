@@ -1,0 +1,13 @@
+[package]
+name = "async_rust_from_python"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+tokio = { version = "1.36", features = ["full"] }
+
+[build-dependencies]
+cbindgen = "0.24.0"
