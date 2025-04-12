@@ -84,19 +84,29 @@ pub extern "C" fn MyCLibrary_GetCompletedRequests(
         });
     }
     
-    // Get the current requests
-    let requests = my_library.completed_requests_receiver.borrow();
-    let count = std::cmp::min(completed_requests_len, requests.len() as u64);
+    // Get the current requests and prepare to update them
+    let mut processed_count = 0;
     
-    // Copy the requests to the provided array
-    if !completed_requests.is_null() && count > 0 {
-        let dest_slice = unsafe { std::slice::from_raw_parts_mut(completed_requests, count as usize) };
-        for (i, request) in requests.iter().take(count as usize).enumerate() {
-            dest_slice[i] = CompletedRequest {
-                userdata: request.userdata,
-                result: request.result,
-            };
+    // We need to modify the vector through the sender
+    my_library.completed_requests_sender.send_modify(|requests| {
+        // Get number of items we'll process
+        let count = std::cmp::min(completed_requests_len, requests.len() as u64);
+        processed_count = count;
+        
+        // Copy the requests to the provided array
+        if !completed_requests.is_null() && count > 0 {
+            let dest_slice = unsafe { std::slice::from_raw_parts_mut(completed_requests, count as usize) };
+            for (i, request) in requests.iter().take(count as usize).enumerate() {
+                dest_slice[i] = CompletedRequest {
+                    userdata: request.userdata,
+                    result: request.result,
+                };
+            }
+            
+            // Remove the consumed requests (drain the first 'count' elements)
+            requests.drain(0..count as usize);
         }
-    }
-    count
+    });
+    
+    processed_count
 } 
