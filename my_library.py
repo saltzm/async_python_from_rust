@@ -4,12 +4,11 @@ from typing import List, Tuple
 import asyncio
 
 class CompletedRequest:
-    def __init__(self, userdata: int, result: int):
+    def __init__(self, userdata: int):
         self.userdata = userdata
-        self.result = result
 
     def __str__(self):
-        return f"Userdata: {self.userdata}, Return code: {self.result}"
+        return f"Userdata: {self.userdata}"
 
 class MyLibrary:
     def __init__(self):
@@ -20,7 +19,6 @@ class MyLibrary:
         class CCompletedRequest(ctypes.Structure):
             _fields_ = [
                 ("userdata", ctypes.c_uint64),
-                ("result", ctypes.c_uint32),
             ]
         self.CCompletedRequest = CCompletedRequest
         
@@ -66,11 +64,10 @@ class MyLibrary:
         self.lib.MyLibrary_SleepAndAdd(self.my_library, userdata, left, right, ctypes.byref(result))
 
         # Wait for the result
-        self.outstanding_requests[userdata] = { 'return_code': None, 'event': asyncio.Event() }
+        self.outstanding_requests[userdata] = {'event': asyncio.Event()}
         await self.outstanding_requests[userdata]['event'].wait()
 
         # Get the result and delete the request
-        return_code = self.outstanding_requests[userdata]['return_code']
         del self.outstanding_requests[userdata]
         return result.value
     
@@ -87,7 +84,7 @@ class MyLibrary:
             )
             for i in range(count):
                 req = completed_requests[i]
-                self.outstanding_requests[req.userdata]['return_code'] = req.result
-                self.outstanding_requests[req.userdata]['event'].set()
+                if req.userdata in self.outstanding_requests:
+                    self.outstanding_requests[req.userdata]['event'].set()
             # Yield to allow other tasks to run
             await asyncio.sleep(0)

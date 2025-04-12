@@ -1,24 +1,23 @@
 use tokio::runtime::Runtime;
-use tokio::sync::watch;
+use tokio::sync::mpsc;
 use crate::MyLibrary as MyLib;
 
 #[repr(C)]
 #[derive(Clone)]
 pub struct CompletedRequest {
     userdata: u64,
-    result: u32,
 }
 
 pub struct MyLibrary {
-    completed_requests_sender: watch::Sender<Vec<CompletedRequest>>,
-    completed_requests_receiver: watch::Receiver<Vec<CompletedRequest>>,
+    completed_requests_sender: mpsc::Sender<CompletedRequest>,
+    completed_requests_receiver: mpsc::Receiver<CompletedRequest>,
     library: MyLib,
     runtime: Runtime,
 }
 
 #[no_mangle]
 pub extern "C" fn MyLibrary_Create() -> *mut MyLibrary {
-    let (sender, receiver) = watch::channel(Vec::new());
+    let (sender, receiver) = mpsc::channel(128); // Channel with capacity of 128
     Box::into_raw(Box::new(MyLibrary {
         completed_requests_sender: sender,
         completed_requests_receiver: receiver,
@@ -49,12 +48,12 @@ pub extern "C" fn MyLibrary_SleepAndAdd(my_library: *mut MyLibrary, userdata: u6
     
     my_library.runtime.spawn(async move {
         *result = library.sleep_and_add(left, right).await;
-        completed_requests_sender.send_modify(|requests| {
-            requests.push(CompletedRequest {
-                userdata: userdata_clone,
-                result: 0,
-            });
-        });
+        // Simply send the completed request directly to the channel
+        if let Err(e) = completed_requests_sender.send(CompletedRequest {
+            userdata: userdata_clone,
+        }).await {
+            eprintln!("Failed to send completed request: {}", e);
+        }
     });
     
     println!("Request added for userdata: {}", userdata);
@@ -69,43 +68,42 @@ pub extern "C" fn MyLibrary_GetCompletedRequests(
 ) -> u64 {
     let my_library = unsafe { &mut *my_library };
     
-    // If wait_num > 0, wait for that many events
-    if wait_num > 0 {
-        let mut receiver = my_library.completed_requests_receiver.clone();
-        my_library.runtime.block_on(async move {
-            loop {
-                let len = receiver.borrow().len() as u64;
-                if len >= wait_num {
-                    break;
+    let mut count = 0;
+    
+    // Use try_recv to get available messages without waiting
+    if !completed_requests.is_null() && completed_requests_len > 0 {
+        let dest_slice = unsafe { std::slice::from_raw_parts_mut(completed_requests, completed_requests_len as usize) };
+        
+        // If wait_num > 0, we'll wait for at least that many requests
+        if wait_num > 0 {
+            my_library.runtime.block_on(async {
+                // We need to receive exactly wait_num requests or until the channel is empty
+                while count < wait_num && count < completed_requests_len {
+                    match my_library.completed_requests_receiver.recv().await {
+                        Some(request) => {
+                            dest_slice[count as usize] = request;
+                            count += 1;
+                        },
+                        None => break, // Channel closed
+                    }
                 }
-                receiver.changed().await.unwrap();
-            }
-        });
+            });
+        } else {
+            // Don't wait, just get what's available
+            my_library.runtime.block_on(async {
+                // Collect up to completed_requests_len requests without waiting
+                while count < completed_requests_len {
+                    match my_library.completed_requests_receiver.try_recv() {
+                        Ok(request) => {
+                            dest_slice[count as usize] = request;
+                            count += 1;
+                        },
+                        Err(_) => break, // No more messages available or channel closed
+                    }
+                }
+            });
+        }
     }
     
-    // Get the current requests and prepare to update them
-    let mut processed_count = 0;
-    
-    // We need to modify the vector through the sender
-    my_library.completed_requests_sender.send_modify(|requests| {
-        // Get number of items we'll process
-        let count = std::cmp::min(completed_requests_len, requests.len() as u64);
-        processed_count = count;
-        
-        // Copy the requests to the provided array
-        if !completed_requests.is_null() && count > 0 {
-            let dest_slice = unsafe { std::slice::from_raw_parts_mut(completed_requests, count as usize) };
-            for (i, request) in requests.iter().take(count as usize).enumerate() {
-                dest_slice[i] = CompletedRequest {
-                    userdata: request.userdata,
-                    result: request.result,
-                };
-            }
-            
-            // Remove the consumed requests (drain the first 'count' elements)
-            requests.drain(0..count as usize);
-        }
-    });
-    
-    processed_count
+    count
 } 
