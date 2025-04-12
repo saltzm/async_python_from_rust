@@ -1,8 +1,8 @@
-from async_rust import MyCLibrary, CompletedRequest
+from my_library import MyLibrary, CompletedRequest
 import asyncio
 
 async def main():
-    lib = MyCLibrary()
+    lib = MyLibrary()
     
     # Use gather to run operations concurrently
     result1, result2 = await asyncio.gather(

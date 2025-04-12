@@ -1,7 +1,6 @@
-use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::sync::watch;
-use crate::MyLibrary;
+use crate::MyLibrary as MyLib;
 
 #[repr(C)]
 #[derive(Clone)]
@@ -10,26 +9,26 @@ pub struct CompletedRequest {
     result: u32,
 }
 
-pub struct MyCLibrary {
+pub struct MyLibrary {
     completed_requests_sender: watch::Sender<Vec<CompletedRequest>>,
     completed_requests_receiver: watch::Receiver<Vec<CompletedRequest>>,
-    library: MyLibrary,
+    library: MyLib,
     runtime: Runtime,
 }
 
 #[no_mangle]
-pub extern "C" fn MyCLibrary_Create() -> *mut MyCLibrary {
+pub extern "C" fn MyLibrary_Create() -> *mut MyLibrary {
     let (sender, receiver) = watch::channel(Vec::new());
-    Box::into_raw(Box::new(MyCLibrary {
+    Box::into_raw(Box::new(MyLibrary {
         completed_requests_sender: sender,
         completed_requests_receiver: receiver,
-        library: MyLibrary::new(),
+        library: MyLib::new(),
         runtime: Runtime::new().expect("Failed to create Tokio runtime"),
     }))
 }
 
 #[no_mangle]
-pub extern "C" fn MyCLibrary_Destroy(my_library: *mut *mut MyCLibrary) {
+pub extern "C" fn MyLibrary_Destroy(my_library: *mut *mut MyLibrary) {
     unsafe {
         if !my_library.is_null() {
             let boxed = Box::from_raw(*my_library);
@@ -40,7 +39,7 @@ pub extern "C" fn MyCLibrary_Destroy(my_library: *mut *mut MyCLibrary) {
 }
 
 #[no_mangle]
-pub extern "C" fn MyCLibrary_SleepAndAdd(my_library: *mut MyCLibrary, userdata: u64, left: u64, right: u64, result: *mut u64) {
+pub extern "C" fn MyLibrary_SleepAndAdd(my_library: *mut MyLibrary, userdata: u64, left: u64, right: u64, result: *mut u64) {
     let my_library = unsafe { &mut *my_library };
     let result = unsafe { &mut *result };
     
@@ -62,8 +61,8 @@ pub extern "C" fn MyCLibrary_SleepAndAdd(my_library: *mut MyCLibrary, userdata: 
 }
 
 #[no_mangle]
-pub extern "C" fn MyCLibrary_GetCompletedRequests(
-    my_library: *mut MyCLibrary,
+pub extern "C" fn MyLibrary_GetCompletedRequests(
+    my_library: *mut MyLibrary,
     completed_requests: *mut CompletedRequest,
     completed_requests_len: u64,
     wait_num: u64,

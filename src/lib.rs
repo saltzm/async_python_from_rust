@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 pub struct MyLibrary {
+    // Not needed in simple example, but could be used to store other data.
 }
 
 impl MyLibrary {
