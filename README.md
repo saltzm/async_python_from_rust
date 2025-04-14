@@ -5,7 +5,7 @@ cargo init --lib
 
 cargo install --force cbindgen
 
-cargo build --release
+cargo build
 
 cbindgen --config cbindgen.toml --crate async_rust_from_python --output my_library.h
 
